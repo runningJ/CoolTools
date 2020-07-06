@@ -1,0 +1,307 @@
+import numpy as np
+from numpy import *
+import sys
+from skimage import transform
+sys.path.insert(0,'/home/nemo/code/caffe/python')
+import os  
+os.environ['GLOG_minloglevel'] = '3'
+import caffe
+import exceptions
+from sklearn import preprocessing
+import cv2
+
+class Net(object):
+    def __init__(self,parameters):
+        self.pa=parameters
+        print("{},{}".format(self.pa.deploy_pt,self.pa.model))
+        self.net=caffe.Net(self.pa.deploy_pt,self.pa.model,caffe.TEST)
+        if self.pa.set_gpu:
+            caffe.set_mode_gpu()
+            caffe.set_device(self.pa.device_id)
+        else:
+            caffe.set_mode_cpu()
+
+    def classify(self,imagepath):
+        '''
+        input image and extract fea and get category
+        image value in [0 255]
+        '''
+        try:
+            img=caffe.io.load_image(imagepath)
+        except:
+            print "the image %s may have problem"%imagepath
+        else:
+            
+            img=transform.resize(img,(self.pa.shape[0],self.pa.shape[1],self.pa.shape[2]))
+            img=img.transpose((2,0,1))
+            img=img[(2,1,0),:,:]
+            img*=255
+            
+            mean=self.pa.mean_value
+            mean=mean[:,np.newaxis,np.newaxis]
+            img-=mean
+            
+            self.net.blobs['data'].data[0]=img
+            self.net.forward()
+            number=len(self.pa.layer_name)
+            fea=self.net.blobs[self.pa.layer_name[0]].data[0]
+            fea=np.squeeze(fea)
+            fea=np.squeeze(preprocessing.normalize(fea,norm='l2'))
+            if number>1:
+                category=self.net.blobs[self.pa.layer_name[1]].data[0].argmax()
+                return category,fea
+            else:
+                return fea
+    
+    def category(self,imagepath):
+        '''
+        input image loading using skiimage and get category
+        image value in [0 1]
+        '''
+        try:
+            img=caffe.io.load_image(imagepath)
+        except:
+            print "the image %s has problem" %imagepath
+        else:
+            img=transform.resize(img,(self.pa.shape[0],self.pa.shape[1],self.pa.shape[2]))
+            img=img.transpose((2,0,1))
+            img=img[(2,1,0),:,:]
+            img*=255
+            mean=self.pa.mean_value
+            mean=mean[:,np.newaxis,np.newaxis]
+            img-=mean
+            img*=0.0078125
+            self.net.blobs['data'].data[0]=img
+            out=self.net.forward()
+            category = out[self.pa.layer_name[0]][0].argmax()
+            confidence = out[self.pa.layer_name[0]][0][category]
+            return category,confidence
+
+    def category_cv(self,imagepath):
+        '''
+        input image load using opencv and get category
+        image value in [0 255]
+        '''
+        try:
+            img = cv2.imread(imagepath)
+            if img is None:
+                return -1
+        except:
+            print "load image failed %s"%imagepath
+        else:
+            img = cv2.resize(img,(self.pa.shape[0],self.pa.shape[1]))
+            img = img.astype(np.float64)
+            img=img.transpose((2,0,1))
+            self.net.blobs['data'].data[0]=img
+            out=self.net.forward()
+            category = out[self.pa.layer_name[0]][0].argmax()
+            confidence = out[self.pa.layer_name[0]][0][category]
+            return category,confidence
+
+    def category_ycbcr(self,imagepath):
+        '''
+        This method is used to get classify result
+        '''
+        try:
+            img = cv2.imread(imagepath)
+            if img is None:
+                return -1
+        except:
+            print "load image failed %s"%imagepath
+        else:
+            img = cv2.cvtColor(img,cv2.COLOR_BGR2YCR_CB)
+            img = cv2.resize(img,(self.pa.shape[0],self.pa.shape[1]))
+            img=img.transpose((2,0,1))
+            self.net.blobs['data'].data[0]=img
+            out=self.net.forward()
+            category = out[self.pa.layer_name[0]][0].argmax()
+            confidence = out[self.pa.layer_name[0]][0][category]
+            return category,confidence
+    
+    def category_ycbcr_warp(self,imagepath):
+        '''
+        This method is used to get classify result
+        '''
+        try:
+            img = cv2.imread(imagepath)
+            if img is None:
+                return -1
+        except:
+            print "load image failed %s"%imagepath
+        else:
+            warp_img = ones((self.pa.shape[0],self.pa.shape[0],3),dtype = uint8)
+            warp_img = warp_img*128
+            img_h = img.shape[0]
+            img_w = img.shape[1]
+            if img_h > img_w:
+                new_img_h = self.pa.shape[0]
+                new_img_w = int(img_w*new_img_h*1.0/img_h)
+                img = cv2.resize(img,(new_img_w,new_img_h))
+                warp_img[:,0:new_img_w,:] = img
+            else:
+                new_img_w = self.pa.shape[0]
+                new_img_h = int(img_h*new_img_w*1.0/img_w)
+                img = cv2.resize(img,(new_img_w,new_img_h))
+                warp_img[0:new_img_h,:,:]=img
+            warp_img = cv2.cvtColor(warp_img,cv2.COLOR_BGR2YCR_CB)
+            warp_img=warp_img.transpose((2,0,1))
+            self.net.blobs['data'].data[0]=warp_img
+            out=self.net.forward()
+            category = out[self.pa.layer_name[0]][0].argmax()
+            confidence = out[self.pa.layer_name[0]][0][category]
+            return category,confidence
+            
+    def category_ycbcr_resize(self,imagepath):
+        '''
+        This method is used to get classify result
+        '''
+        try:
+            img = cv2.imread(imagepath)
+            if img is None:
+                return -1
+        except:
+            print "load image failed %s"%imagepath
+        else:
+            img = cv2.cvtColor(img,cv2.COLOR_BGR2YCR_CB)
+
+            img_h = img.shape[0]
+            img_w = img.shape[1]
+            if img_h > img_w:
+                new_img_h = self.pa.shape[0]
+                new_img_w = int(img_w*new_img_h*1.0/img_h)
+            else:
+                new_img_w = self.pa.shape[0]
+                new_img_h = int(img_h*new_img_w*1.0/img_w)
+                
+            img = cv2.resize(img,(new_img_w,new_img_h))
+            img=img.transpose((2,0,1))
+            self.net.blobs['data'].reshape(1,3,new_img_h,new_img_w)
+            self.net.blobs['data'].data[0]=img
+            out=self.net.forward()
+            category = out[self.pa.layer_name[0]][0].argmax()
+            confidence = out[self.pa.layer_name[0]][0][category]
+            return category,confidence
+
+    def category_warp(self,imagepath):
+        '''
+        this method used to classify image with input warp
+        '''
+        size = (self.pa.shape[0],self.pa.shape[1])
+        img = cv2.imread(imagepath)
+        img_h,img_w = img.shape[:-1]
+        if img_h > img_w:
+            new_h = size[1]
+            new_w = int((new_h*1.0/img_h)*img_w)
+        else:
+            new_w = size[0]
+            new_h = int((new_w*1.0/img_w)*img_h)
+        resize_img = cv2.resize(img,(new_w,new_h))
+        w_begin = (self.pa.shape[0] - new_w)/2
+        h_begin = (size[1] - new_h)/2
+        warp_img = ones((size[1],size[0],3),dtype = uint8)
+        warp_img = warp_img*128
+        warp_img[h_begin:h_begin+resize_img.shape[0],w_begin:w_begin+resize_img.shape[1],:]=resize_img
+        warp_img = warp_img.transpose((2,0,1))
+        warp_img = warp_img*1.0
+        mean = self.pa.mean_value
+        mean = mean[:,np.newaxis,np.newaxis]
+        warp_img-=mean
+        self.net.blobs['data'].data[0] = warp_img
+        out = self.net.forward()
+        category=out[self.pa.layer_name[0]][0].argmax()
+        confidence=out[self.pa.layer_name[0]][0][category]
+        return category,confidence
+
+    def extract_fea(self,imagepath,data_name):
+        try:
+            img = cv2.imread(imagepath)
+        except:
+            print "load image failed %s"%imagepath
+        else:
+            img = cv2.resize(img,(self.pa.shape[0],self.pa.shape[1]))
+            img = img.astype(np.float64)
+            img=img.transpose((2,0,1))
+            mean=self.pa.mean_value
+            mean=mean[:,np.newaxis,np.newaxis]
+            img-=mean
+            img*=0.0078125
+            self.net.blobs['data'].data[0]=img
+            self.net.forward()
+            feat = net.blobs[data_name].data[0]
+        return feat
+
+    def multi_task(self,imagepath):
+        '''
+        this method used to test multi_task
+        '''
+        try:
+            img = caffe.io.load_image(imagepath)
+        except:
+            print "the image %s has problem" %imagepath
+        else:
+            out_number = len(self.pa.layer_name)
+            category = []
+            img=transform.resize(img,(self.pa.shape[0],self.pa.shape[1],self.pa.shape[2]))
+            img=img.transpose((2,0,1))
+            img=img[(2,1,0),:,:]
+            img*=255
+            mean=self.pa.mean_value
+            mean=mean[:,np.newaxis,np.newaxis]
+            img-=mean
+            self.net.blobs['data'].data[0]=img
+            out=self.net.forward()
+            for i in xrange(out_number):
+                each_category = out[self.pa.layer_name[i]][0].argmax()
+                category.append(each_category)
+            return category
+
+    def multi_tast_warp(self,imagepath):
+        '''
+        do warp size for forward
+        '''
+        size = (self.pa.shape[0],self.pa.shape[1])
+        img = cv2.imread(imagepath)
+        img_h,img_w = img.shape[:-1]
+        if img_h > img_w:
+            new_h = self.pa.shape[1]
+            new_w = int((new_h*1.0/img_h)*img_w)
+        else:
+            new_w = self.pa.shape[0]
+            new_h = int((new_w*1.0/img_w)*img_h)
+        resize_img = cv2.resize(img,(new_w,new_h))
+        w_begin = (size[0] - new_w)/2
+        h_begin = (size[1] - new_h)/2
+        warp_img = ones((size[1],size[0],3),dtype = uint8)
+        warp_img = warp_img*128
+        warp_img[h_begin:h_begin+resize_img.shape[0],w_begin:w_begin+resize_img.shape[1],:]=resize_img
+        warp_img = warp_img.transpose((2,0,1))
+        warp_img = warp_img*1.0
+        mean=self.pa.mean_value
+        mean=mean[:,np.newaxis,np.newaxis]
+        warp_img-=mean
+        self.net.blobs['data'].data[0] = warp_img
+        out = self.net.forward()
+        for i in xrange(out_number):
+            each_category = out[self.pa.layer_name[i]][0].argmax()
+            category.append(each_category)
+        return category
+
+
+    def sortresult(self,imagepath):
+        try:
+            img=caffe.io.load_image(imagepath)
+        except:
+            print "the image %s has problem" %imagepath
+        else:
+            img=transform.resize(img,(self.pa.shape[0],self.pa.shape[1],self.pa.shape[2]))
+            img=img.transpose((2,0,1))
+            img=img[(2,1,0),:,:]
+            img*=255
+            mean=self.pa.mean_value
+            mean=mean[:,np.newaxis,np.newaxis]
+            img-=mean
+            self.net.blobs['data'].data[0]=img
+            out=self.net.forward()
+            category=np.argsort(-out[self.pa.layer_name[0]][0])[0:3]#descend
+            confidence=out[self.pa.layer_name[0]][0][category]
+            return category,confidence
