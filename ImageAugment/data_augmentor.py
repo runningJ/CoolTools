@@ -85,17 +85,18 @@ class DataAugmentor(object):
         '''
         img = cv2.imread(img_path)
         img_h,img_w,_ = img.shape
-
-        bbox_h = randint(50,factor)
-        bbox_w = randint(50,factor)
-
-        start_x = randint(1,img_w - bbox_w -1)
-        start_y = randint(1,img_h - bbox_h -1)
-
-        method_name = "random_erase"
-        img[start_y:start_y+bbox_h,start_x:start_x+bbox_w,:]=128
-
-        return img,method_name
+        bbox_h = randint(10,factor)
+        bbox_w = randint(10,factor)
+        if img_h < factor or img_w < factor:
+            return img,"random_erase"
+        elif img_h < 10 or img_w < 10:
+            return img,"random_erase"
+        else:
+            start_x = randint(1,img_w - bbox_w -1)
+            start_y = randint(1,img_h - bbox_h -1)
+            method_name = "random_erase"
+            img[start_y:start_y+bbox_h,start_x:start_x+bbox_w,:]=128
+            return img,method_name
 
     def median_filter(self,img_path,factor):
         '''
